@@ -1,31 +1,12 @@
-import { makeUint8Array } from "./utils.ts"
+const Polynomial = 0xEDB88320
 
-const wasm = "AGFzbQEAAAABCgJgAABgAn9/AXwDAwIAAQUDAQACBw0DAW0CAAF0AAABYwABCpUBAkkBA38DQCABIQBBACECA0AgAEEBdiAAQQFxQaCG4u1+bHMhACACQQFqIgJBCEcNAAsgAUECdCAANgIAIAFBAWoiAUGAAkcNAAsLSQEBfyABQX9zIQFBgIAEIQJBgIAEIABqIQADQCABQf8BcSACLQAAc0ECdCgCACABQQh2cyEBIAJBAWoiAiAASQ0ACyABQX9zuAs"
+const byteTable = new Uint32Array(256).map((_, crc) => {
+  for (let i = 0; i < 8; i++)
+    crc = crc >>> 1 ^ (crc & 1) * Polynomial;
+  return crc;
+})
 
-const instance = new WebAssembly.Instance(
-  new WebAssembly.Module(Uint8Array.from(atob(wasm), c => c.charCodeAt(0)))
-)
-const { t, c, m } = instance.exports as { t(): void, c(length: number, init: number): number, m: WebAssembly.Memory }
-t() // initialize the table of precomputed CRCs ; this takes 8 kB in the second page of Memory
-export const memory = m // for testing
-
-// Someday we'll have BYOB stream readers and encodeInto etc.
-// When that happens, we should write into this buffer directly.
-const pageSize = 0x10000 // 64 kB
-const crcBuffer = makeUint8Array(m).subarray(pageSize)
-
-export function crc32(data: Uint8Array, crc = 0) {
-  for (const part of splitBuffer(data)) {
-    crcBuffer.set(part)
-    crc = c(part.length, crc)
-  }
-  return crc
-}
-
-function* splitBuffer(data: Uint8Array) {
-  while (data.length > pageSize) {
-    yield data.subarray(0, pageSize)
-    data = data.subarray(pageSize)
-  }
-  if (data.length) yield data
+export function crc32(data: Uint8Array, init: number | undefined) {
+  let crc = ~data.reduce((c, byte) => c >>> 8 ^ byteTable[c & 0xFF ^ byte], ~(init || 0))
+  return crc < 0 ? crc + 0x100000000 : crc
 }
